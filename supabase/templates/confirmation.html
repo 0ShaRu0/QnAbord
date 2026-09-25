@@ -1,0 +1,10 @@
+<!doctype html>
+<html lang="ko">
+  <body>
+    <h1>Q&amp;A 이메일 인증</h1>
+    <p>아래 링크를 눌러 이메일 인증을 완료해주세요.</p>
+    <a href="{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&amp;type=email"
+      >이메일 인증하기</a
+    >
+  </body>
+</html>

@@ -1,0 +1,59 @@
+.card {
+  width: min(450px, 100%);
+  background: white;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  padding: 38px;
+  box-shadow: var(--shadow);
+}
+.intro {
+  text-align: center;
+  margin-bottom: 29px;
+}
+.intro > span {
+  color: var(--primary);
+  font-size: 10px;
+  font-weight: 850;
+  letter-spacing: 0.16em;
+}
+.intro h1 {
+  margin: 6px 0 8px;
+  color: var(--navy);
+  font-size: 25px;
+  letter-spacing: -0.045em;
+}
+.intro p {
+  margin: 0;
+  color: var(--text-soft);
+  font-size: 13px;
+}
+.card form {
+  display: grid;
+  gap: 17px;
+}
+.card label {
+  display: grid;
+  gap: 7px;
+  color: var(--navy);
+  font-size: 12px;
+  font-weight: 700;
+}
+.submit {
+  width: 100%;
+  margin-top: 5px;
+}
+.switcher {
+  text-align: center;
+  margin: 21px 0 0;
+  color: var(--text-soft);
+  font-size: 12px;
+}
+.switcher a {
+  color: var(--primary-dark);
+  font-weight: 750;
+}
+@media (max-width: 760px) {
+  .card {
+    padding: 29px 21px;
+  }
+}
