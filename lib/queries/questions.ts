@@ -1,70 +1,125 @@
-import { notFound } from "next/navigation";
+import "server-only";
+import { cache } from "react";
 import { createClient } from "@/lib/supabase/server";
-import { hasSupabaseEnv } from "@/lib/supabase/env";
-import type { QuestionListItem } from "@/types/database.types";
+import { queryFailure, reportError } from "@/lib/errors";
+import { isUuid } from "@/lib/validation/questions";
+import { PAGE_SIZE, type QuestionFilters } from "@/lib/validation/filters";
+import type {
+  PageResult,
+  PopularQuestion,
+  QuestionDraft,
+  QuestionFeedRow,
+  QuestionListItem,
+} from "@/types/models";
 
-type FeedRow = {
-  id: string;
-  user_id: string;
-  title: string;
-  content: string;
-  category: string;
-  status: "waiting" | "answered";
-  views: number;
-  created_at: string;
-  updated_at: string;
-  username: string;
-  avatar_url: string | null;
-  answer_count: number;
-  tags: unknown;
-};
-
-function mapQuestion(row: FeedRow): QuestionListItem {
-  return { ...row, tags: Array.isArray(row.tags) ? row.tags.filter((tag): tag is string => typeof tag === "string") : [] };
+function mapQuestion(row: QuestionFeedRow): QuestionListItem {
+  return {
+    id: required(row.id),
+    user_id: required(row.user_id),
+    title: required(row.title),
+    content: required(row.content),
+    category: required(row.category),
+    status: required(row.status),
+    views: required(row.views),
+    created_at: required(row.created_at),
+    updated_at: required(row.updated_at),
+    username: required(row.username),
+    avatar_url: row.avatar_url,
+    answer_count: required(row.answer_count),
+    tags: Array.isArray(row.tags)
+      ? row.tags.filter((tag): tag is string => typeof tag === "string")
+      : [],
+  };
 }
 
-export type QuestionFilters = { query?: string; category?: string; sort?: string; status?: string };
+// Views are conservatively nullable in generated types. Check our read-model
+// invariant at the boundary instead of asserting a stronger type everywhere.
+function required<T>(value: T | null): T {
+  if (value === null)
+    queryFailure("questions.invalidFeedRow", new Error("Missing required view field"));
+  return value;
+}
 
-export async function getQuestions(filters: QuestionFilters = {}) {
-  if (!hasSupabaseEnv()) return [];
+export async function getQuestions(
+  filters: QuestionFilters,
+): Promise<PageResult<QuestionListItem>> {
   const supabase = await createClient();
-  let request = supabase.from("question_feed").select("*");
-
-  if (filters.query) {
-    const safeQuery = filters.query.replaceAll(/[%,()]/g, " ").trim();
-    if (safeQuery) request = request.or(`title.ilike.%${safeQuery}%,content.ilike.%${safeQuery}%`);
-  }
-  if (filters.category && filters.category !== "전체") request = request.eq("category", filters.category);
-  if (filters.status === "answered" || filters.status === "waiting") request = request.eq("status", filters.status);
-
-  const orderColumn = filters.sort === "views" ? "views" : filters.sort === "answers" ? "answer_count" : "created_at";
-  const { data, error } = await request.order(orderColumn, { ascending: false }).limit(50);
-  if (error) throw new Error(error.message);
-  return (data as FeedRow[]).map(mapQuestion);
+  const { data, error } = await supabase.rpc("search_questions", {
+    search_text: filters.query,
+    category_filter: filters.category,
+    status_filter: filters.status,
+    sort_by: filters.sort,
+    page_number: filters.page,
+    page_size: PAGE_SIZE,
+  });
+  if (error) queryFailure("questions.list", error);
+  return {
+    items: (data ?? []).slice(0, PAGE_SIZE).map(mapQuestion),
+    hasMore: (data?.length ?? 0) > PAGE_SIZE,
+    page: filters.page,
+  };
 }
 
-export async function getPopularQuestions() {
-  if (!hasSupabaseEnv()) return [];
+export async function getPopularQuestions(): Promise<PopularQuestion[]> {
   const supabase = await createClient();
-  const { data, error } = await supabase.from("question_feed").select("*").order("views", { ascending: false }).limit(5);
-  if (error) throw new Error(error.message);
-  return (data as FeedRow[]).map(mapQuestion);
+  const { data, error } = await supabase
+    .from("question_feed")
+    .select("id, title, views, answer_count")
+    .order("views", { ascending: false })
+    .order("id")
+    .limit(5);
+  if (error) queryFailure("questions.popular", error);
+  return (data ?? []).map((row) => ({
+    id: required(row.id),
+    title: required(row.title),
+    views: required(row.views),
+    answer_count: required(row.answer_count),
+  }));
 }
 
-export async function getQuestion(id: string) {
-  if (!hasSupabaseEnv()) notFound();
+// React cache deduplicates only within a server request, not across users.
+export const getQuestion = cache(async (id: string): Promise<QuestionListItem | null> => {
+  if (!isUuid(id)) return null;
   const supabase = await createClient();
-  const [{ data: question, error }, { data: answers, error: answerError }] = await Promise.all([
-    supabase.from("question_feed").select("*").eq("id", id).maybeSingle(),
-    supabase.from("answers").select("*, profiles(username, avatar_url)").eq("question_id", id).order("created_at", { ascending: true }),
-  ]);
-  if (error || answerError) throw new Error(error?.message ?? answerError?.message);
-  if (!question) notFound();
-  return { ...mapQuestion(question as FeedRow), answers: answers ?? [] };
-}
+  const { data, error } = await supabase
+    .from("question_feed")
+    .select("*")
+    .eq("id", id)
+    .maybeSingle();
+  if (error) queryFailure("questions.detail", error);
+  return data ? mapQuestion(data) : null;
+});
 
 export async function incrementViews(id: string) {
-  if (!hasSupabaseEnv()) return;
+  if (!isUuid(id)) return;
   const supabase = await createClient();
-  await supabase.rpc("increment_question_views", { question_id: id });
+  const { error } = await supabase.rpc("increment_question_views", { question_id: id });
+  if (error) {
+    reportError("questions.incrementViews", error, id);
+    return false;
+  }
+  return true;
+}
+
+export async function getEditableQuestion(
+  id: string,
+  userId: string,
+): Promise<QuestionDraft | null> {
+  if (!isUuid(id)) return null;
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("questions")
+    .select("id, title, content, category, question_tags(tags(name))")
+    .eq("id", id)
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (error) queryFailure("questions.edit", error);
+  if (!data) return null;
+  return {
+    id: data.id,
+    title: data.title,
+    content: data.content,
+    category: data.category,
+    tags: data.question_tags.flatMap((tag) => (tag.tags ? [tag.tags.name] : [])),
+  };
 }

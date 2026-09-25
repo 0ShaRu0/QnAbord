@@ -1,62 +1,80 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { createClient } from "@/lib/supabase/server";
-import { EDITABLE_CATEGORIES, normalizeTags } from "@/lib/utils";
+import { authenticatedClient } from "@/lib/auth/server";
+import { parseQuestion, isUuid } from "@/lib/validation/questions";
+import { NOT_FOUND_STATE, UNAUTHENTICATED_STATE, unavailable, validationError } from "@/lib/errors";
+import { revalidateQuestions } from "@/lib/revalidation";
+import type { ActionState } from "@/types/actions";
 
-export type FormState = { error?: string };
-
-function parseQuestion(formData: FormData) {
-  const title = String(formData.get("title") ?? "").trim();
-  const content = String(formData.get("content") ?? "").trim();
-  const category = String(formData.get("category") ?? "");
-  const tags = normalizeTags(String(formData.get("tags") ?? ""));
-  if (!title || !content || !category) return { error: "제목, 카테고리, 내용을 모두 입력해주세요." };
-  if (title.length > 120) return { error: "제목은 120자 이하로 입력해주세요." };
-  if (content.length > 10000) return { error: "내용은 10,000자 이하로 입력해주세요." };
-  if (!EDITABLE_CATEGORIES.includes(category as (typeof EDITABLE_CATEGORIES)[number])) return { error: "올바른 카테고리를 선택해주세요." };
-  return { title, content, category, tags };
+export async function createQuestion(_: ActionState, formData: FormData): Promise<ActionState> {
+  const parsed = parseQuestion(formData);
+  if (!parsed.ok) return validationError(parsed.fieldErrors);
+  let questionId: string;
+  try {
+    const session = await authenticatedClient();
+    if (!session) return UNAUTHENTICATED_STATE;
+    const { supabase } = session;
+    const { data, error } = await supabase.rpc("create_question_with_tags", {
+      question_title: parsed.value.title,
+      question_content: parsed.value.content,
+      question_category: parsed.value.category,
+      tag_names: parsed.value.tags,
+    });
+    if (error || !data) return unavailable("questions.create", error);
+    questionId = data;
+  } catch (error) {
+    return unavailable("questions.create", error);
+  }
+  revalidateQuestions(questionId);
+  redirect(`/questions/${questionId}`);
 }
 
-export async function createQuestion(_: FormState, formData: FormData): Promise<FormState> {
+export async function updateQuestion(
+  id: string,
+  _: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  if (!isUuid(id)) return NOT_FOUND_STATE;
   const parsed = parseQuestion(formData);
-  if ("error" in parsed) return { error: parsed.error };
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) redirect(`/login?redirectTo=${encodeURIComponent("/questions/write")}`);
-  const { data, error } = await supabase.rpc("create_question_with_tags", {
-    question_title: parsed.title,
-    question_content: parsed.content,
-    question_category: parsed.category,
-    tag_names: parsed.tags,
-  });
-  if (error) return { error: error.message };
-  revalidatePath("/");
-  redirect(`/questions/${data}`);
-}
-
-export async function updateQuestion(id: string, _: FormState, formData: FormData): Promise<FormState> {
-  const parsed = parseQuestion(formData);
-  if ("error" in parsed) return { error: parsed.error };
-  const supabase = await createClient();
-  const { error } = await supabase.rpc("update_question_with_tags", {
-    question_id: id,
-    question_title: parsed.title,
-    question_content: parsed.content,
-    question_category: parsed.category,
-    tag_names: parsed.tags,
-  });
-  if (error) return { error: error.message };
-  revalidatePath("/");
-  revalidatePath(`/questions/${id}`);
+  if (!parsed.ok) return validationError(parsed.fieldErrors);
+  try {
+    const session = await authenticatedClient();
+    if (!session) return UNAUTHENTICATED_STATE;
+    const { supabase } = session;
+    const { error } = await supabase.rpc("update_question_with_tags", {
+      question_id: id,
+      question_title: parsed.value.title,
+      question_content: parsed.value.content,
+      question_category: parsed.value.category,
+      tag_names: parsed.value.tags,
+    });
+    if (error?.code === "P0002") return NOT_FOUND_STATE;
+    if (error) return unavailable("questions.update", error, id);
+  } catch (error) {
+    return unavailable("questions.update", error, id);
+  }
+  revalidateQuestions(id);
   redirect(`/questions/${id}`);
 }
 
-export async function deleteQuestion(id: string) {
-  const supabase = await createClient();
-  const { error } = await supabase.from("questions").delete().eq("id", id);
-  if (error) throw new Error(error.message);
-  revalidatePath("/");
+export async function deleteQuestion(id: string): Promise<ActionState> {
+  if (!isUuid(id)) return NOT_FOUND_STATE;
+  try {
+    const session = await authenticatedClient();
+    if (!session) return UNAUTHENTICATED_STATE;
+    const { supabase } = session;
+    const { data, error } = await supabase
+      .from("questions")
+      .delete()
+      .eq("id", id)
+      .select("id")
+      .maybeSingle();
+    if (error) return unavailable("questions.delete", error, id);
+    if (!data) return NOT_FOUND_STATE;
+  } catch (error) {
+    return unavailable("questions.delete", error, id);
+  }
+  revalidateQuestions(id);
   redirect("/questions");
 }

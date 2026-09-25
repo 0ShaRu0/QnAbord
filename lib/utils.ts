@@ -1,23 +1,15 @@
-export const CATEGORIES = ["전체", "프로그래밍", "웹개발", "디자인", "기타"] as const;
-export const EDITABLE_CATEGORIES = CATEGORIES.slice(1);
-
-export function formatRelativeTime(date: string) {
-  const seconds = Math.floor((Date.now() - new Date(date).getTime()) / 1000);
-  if (seconds < 60) return "방금 전";
-  const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `${minutes}분 전`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}시간 전`;
-  const days = Math.floor(hours / 24);
-  if (days < 7) return `${days}일 전`;
-  return new Intl.DateTimeFormat("ko-KR", { year: "numeric", month: "short", day: "numeric" }).format(new Date(date));
-}
-
-export function normalizeTags(value: string) {
-  return [...new Set(value.split(",").map((tag) => tag.trim().replace(/^#/, "")).filter(Boolean))].slice(0, 5);
-}
-
-export function getSafeRedirect(value: FormDataEntryValue | null, fallback = "/") {
-  const path = typeof value === "string" ? value : fallback;
-  return path.startsWith("/") && !path.startsWith("//") ? path : fallback;
+export function formatRelativeTime(date: string, now = Date.now()) {
+  const timestamp = new Date(date).getTime();
+  if (!Number.isFinite(timestamp)) return "날짜 미상";
+  const seconds = Math.floor((now - timestamp) / 1000);
+  if (seconds >= 0 && seconds < 60) return "방금 전";
+  if (seconds >= 60 && seconds < 3600) return `${Math.floor(seconds / 60)}분 전`;
+  if (seconds >= 3600 && seconds < 86400) return `${Math.floor(seconds / 3600)}시간 전`;
+  if (seconds >= 86400 && seconds < 604800) return `${Math.floor(seconds / 86400)}일 전`;
+  return new Intl.DateTimeFormat("ko-KR", {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    timeZone: "Asia/Seoul",
+  }).format(timestamp);
 }

@@ -2,11 +2,24 @@
   "name": "learnflow-qa",
   "version": "1.0.0",
   "private": true,
+  "engines": {
+    "node": "24.x",
+    "npm": ">=11 <12"
+  },
+  "packageManager": "npm@11.13.0",
   "scripts": {
     "dev": "next dev --webpack",
     "build": "next build --webpack",
     "start": "next start",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "typecheck": "next typegen && tsc --noEmit",
+    "test": "tsx --test tests/unit/*.test.ts",
+    "test:db": "tsx --test tests/db/*.test.ts",
+    "types:db": "tsx scripts/generate-db-types.mts",
+    "test:e2e": "playwright test",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "check:deployment": "node --env-file-if-exists=.env.local --import tsx scripts/check-deployment.mts"
   },
   "dependencies": {
     "@fontsource/noto-sans-kr": "5.3.0",
@@ -15,16 +28,24 @@
     "lucide-react": "^0.546.0",
     "next": "^16.3.5",
     "react": "^19.3.0",
-    "react-dom": "^19.3.0"
+    "react-dom": "^19.3.0",
+    "server-only": "^0.0.1"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.13.0",
+    "@playwright/test": "^1.63.0",
+    "@supabase/postgrest-typegen": "0.2.5",
     "@tailwindcss/postcss": "^4.1.14",
     "@types/node": "^24.7.2",
+    "@types/pg": "^8.23.1",
     "@types/react": "^19.2.2",
     "@types/react-dom": "^19.2.2",
     "eslint": "^9.37.0",
     "eslint-config-next": "^16.3.5",
+    "pg": "^8.23.0",
+    "prettier": "^3.9.9",
     "tailwindcss": "^4.1.14",
+    "tsx": "^4.23.15",
     "typescript": "^5.9.3"
   }
 }

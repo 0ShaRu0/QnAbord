@@ -6,3 +6,9 @@ out/
 npm-debug.log*
 .vercel/
 *.tsbuildinfo
+.omo/
+coverage/
+playwright-report/
+test-results/
+supabase/.temp/
+supabase/.branches/
